@@ -66,14 +66,11 @@ def get_shares
                   LOG.debug "Our shares was an array"
                   LOG.debug "Processing share data: #{share.inspect}"
                   member_type = (share.has_key? "member_type") ? share['member_type'] : 'user'
-<<<<<<< HEAD
                   if AD.check_membership(group, member_type)
-=======
                   result = AD.check_membership(group, member_type)
                   LOG.debug "Result from membership check: #{result}"
                   
                   if result
->>>>>>> Added support for the member_type key & computer name memberships
                     shares << Share.new(share)
                   else
                     LOG.debug "#{member_type} was not found to be a member of #{group}. Skipping share."
@@ -186,7 +183,6 @@ module AD
       
       def check_computer_membership(computername, groupname)
         result = `/opt/pbis/bin/adtool -a lookup-object --dn="#{groupname}" --attr=member`.strip.downcase
-<<<<<<< HEAD
         unless result.include? computername
           groups = result.split
           groups.each do |group|
@@ -195,7 +191,6 @@ module AD
             end
           end
         end
-=======
         if result.include? computername.downcase
           LOG.debug "PBIS::check_computer_membership: #{computername} was found to be a member of #{groupname}"
           return true
@@ -211,7 +206,6 @@ module AD
           end
         end
         return false
->>>>>>> Added support for the member_type key & computer name memberships
       end
       
       def is_group?(group)
