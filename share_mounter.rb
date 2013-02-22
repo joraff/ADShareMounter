@@ -65,7 +65,12 @@ def get_shares
                 obj["shares"].each do |share|
                   LOG.debug "Our shares was an array"
                   LOG.debug "Processing share data: #{share.inspect}"
-                  shares << Share.new(share)
+                  member_type = (share.has_key? "member_type") ? share['member_type'] : 'user'
+                  if AD.check_membership(group, member_type)
+                    shares << Share.new(share)
+                  else
+                    LOG.debug "#{member_type} was not found to be a member of #{group}. Skipping share."
+                  end
                 end
               else # Hash or String
                 LOG.debug "Creating new share object with arg: #{obj["shares"].inspect}"
@@ -108,6 +113,18 @@ module AD
   def enum_groups
     adapter.enum_groups
   end
+  
+  def check_membership(group, member_type)
+    adapter.check_membership(group, member_type)
+  end
+  
+  def check_computer_membership(computername, groupname)
+    adapter.check_computer_membership(computername, groupname)
+  end
+  
+  def is_group?(group)
+    adapter.is_group?(group)
+  end
 end
 
 module AD  
@@ -126,7 +143,47 @@ module AD
         groups = `/opt/pbis/bin/adtool -l 2 -a search-group --name "#{ALL_SHARES_GROUP}" -t | /opt/pbis/bin/adtool -a lookup-object --dn=- --attr=member`.split
         LOG.debug "PBIS::enum_groups: #{groups.count} group members found in #{ALL_SHARES_GROUP}"
         groups
-      end 
+      end
+      
+      def check_membership(group, member_type='user')
+        LOG.debug "PBIS::check_membership: Checking membership of #{member_type} in #{group}"
+        case member_type
+        when 'computer'
+          # Since /opt/pbis/domainjoin-cli only lets us query as root, get the computer name instead and hope that it's what we joined as
+          member = `scutil --get ComputerName`.strip
+        else
+          # Always default to current user
+          member = `id -un`.strip
+        end
+        LOG.debug "PBIS::check_membership: #{member_type} member value being used is: #{member}"
+        
+        case member_type
+        when 'user'
+          membership_output = `/opt/pbis/bin/query-member-of --user --by-name #{member}`
+          membership_output.include? group
+        when 'computer'
+          result = check_computer_membership(member, group)
+        end
+      end
+      
+      private
+      
+      def check_computer_membership(computername, groupname)
+        result = `/opt/pbis/bin/adtool -a lookup-object --dn="#{groupname}" --attr=member`.strip.downcase
+        unless result.include? computername
+          groups = result.split
+          groups.each do |group|
+            if is_group?(group)
+              check_computer_membership(computername, group)
+            end
+          end
+        end
+      end
+      
+      def is_group?(group)
+        result = `/opt/pbis/bin/adtool -a lookup-object --dn="#{group}" --attr=objectClass`.strip
+        result.include? "group"
+      end
     end  
   end  
 end
@@ -183,6 +240,8 @@ class Share
       end
       @uri = URI.parse expand_variables(@share)
       @mountname = (arg.has_key? 'mountname') ? arg['mountname'] : @uri.path.split("/").last
+      LOG.debug "set mountname variable = #{@mountname}"
+      
     when String
       @share = arg
       @uri = URI.parse(@share)
@@ -192,6 +251,7 @@ class Share
   
   def mount
     user = `id -un`.strip
+    
     LOG.debug "Username we're using to mount with is #{user}"
         
     mountpoint = "/Volumes/#{mountname}"
