@@ -4,9 +4,15 @@ require 'rubygems'
 require 'json'
 require 'uri'
 require 'logger'
+require File.expand_path(File.dirname(__FILE__) + '/ad_adapters')
 
-# Define which group to enumerate for all the share groups
-ALL_SHARES_GROUP = 'CLLA-All Mac Shares'
+# Get current logged in user
+CURRENT_USER = `id -un`.strip
+
+# Get computer name
+# TODO: move this into the adapter to get the name we're actually bound as. Can be different from the computer name
+COMPUTER_NAME = `scutil --get ComputerName`.strip
+
 
 # Log level
 LOG = Logger.new(STDOUT)
@@ -17,36 +23,84 @@ LOG.level = Logger::DEBUG
 ## pbis uses beyondtrust's pbis tools (in /opt/pbis)
 ## ds uses the built-in directoryservice/opendirectoryd tools (dscl, dsmemberutil, etc.)
 
-## NOTE: only pbis is implemented at the moment
-
-ADAPTER = :pbis  # Can be :pbis or :ds
+ADAPTER = :ds  # Can be :pbis or :ds
 
 #####################
 
 def main
-  AD.adapter = ADAPTER
+  ADAdapters.adapter = ADAPTER
   
-  shares = get_shares
+  groups = ADAdapters.get_groups(CURRENT_USER, "user")
   
-  shares.each do |share|
-    share.mount if share.is_a? Share
+  unless groups.nil? || groups.empty?
+    shares = find_shares_in_groups(groups)
+    shares.each do |share|
+      share.mount if share.is_a? Share
+    end
+  else
+    LOG.warn "No group membership was found for object: #{CURRENT_USER}"
   end
+  
   
   # If multiple shares were mounted, their desktop icons sometimes will overlap each other. Tell Finder to cleanup to arrange these.
   `osascript -e 'tell application "Finder" to clean up window of desktop by name'`
 end
 
-
-def get_shares
+def find_shares_in_groups(groups)
   shares = []
-  
-  groups = AD.enum_groups
   
   if groups.empty?
     LOG.warn "Warning: no group members found in #{ALL_SHARES_GROUP}"
   else
     groups.each do |group|
-      data = AD.get_json(group)
+      data = ADAdapters.get_info(group)
+      if data.nil? || data.empty?
+        LOG.warn "Warning: group '#{group}' has an empty info attribute"
+      else
+        begin
+          json_segments = data.extract_json
+          
+          json_segments.each do |data|
+            obj = JSON.parse(data)
+            if ! obj.is_a? Hash
+              LOG.warn "JSON object from #{group} does not convert to a hash"
+            elsif ! obj.has_key? "shares"
+              LOG.warn "JSON object from #{group} doesn't contain a shares key"
+            else
+              case obj["shares"]
+              when Array
+                obj["shares"].each do |share|
+                  LOG.debug "Our shares was an array"
+                  LOG.debug "Processing share data: #{share.inspect}"                  
+                  shares << Share.new(share)
+                end
+              else # Hash or String
+                unless obj["shares"].empty?
+                  LOG.debug "Creating new share object with arg: #{obj["shares"].inspect}"
+                  shares << Share.new(obj["shares"]) 
+                end
+              end
+            end
+          end # end json_sengments loop
+        rescue JSON::ParserError => e
+          LOG.warn "Warning: group '#{group}' has a json error: #{e}"
+        end # end trap
+      end
+    end
+  end
+  shares
+end
+
+def get_shares
+  shares = []
+  
+  groups = ADAdapters.enum_groups
+  
+  if groups.empty?
+    LOG.warn "Warning: no group members found in #{ALL_SHARES_GROUP}"
+  else
+    groups.each do |group|
+      data = ADAdapters.get_info(group)
       if data.empty?
         LOG.warn "Warning: group '#{group}' has an empty info attribute"
       else
@@ -66,8 +120,7 @@ def get_shares
                   LOG.debug "Our shares was an array"
                   LOG.debug "Processing share data: #{share.inspect}"
                   member_type = (share.has_key? "member_type") ? share['member_type'] : 'user'
-                  if AD.check_membership(group, member_type)
-                  result = AD.check_membership(group, member_type)
+                  result = ADAdapters.check_membership(group, member_type)
                   LOG.debug "Result from membership check: #{result}"
                   
                   if result
@@ -76,11 +129,11 @@ def get_shares
                     LOG.debug "#{member_type} was not found to be a member of #{group}. Skipping share."
                   end
                 end
-              else # Hash or String
+              else
                 unless obj["shares"].empty?
                   LOG.debug "Creating new share object with arg: #{obj["shares"].inspect}"
                   member_type = (obj["shares"].has_key? "member_type") ? obj["shares"]['member_type'] : 'user'
-                  result = AD.check_membership(group, member_type)
+                  result = ADAdapters.check_membership(group, member_type)
                   LOG.debug "Result from membership check: #{result}"
                   if result
                     shares << Share.new(obj["shares"]) 
@@ -100,121 +153,9 @@ def get_shares
   shares
 end
 
-module AD
-  extend self
-  
-  def adapter  
-    return @adapter if @adapter  
-    self.adapter = :pbis  
-    @adapter  
-  end  
-     
-  def adapter=(adapter_name)  
-    case adapter_name  
-    when Symbol, String 
-      @adapter = eval("Adapters::#{adapter_name.to_s.upcase}")
-      include @adapter
-    else  
-      raise "Missing adapter #{adapter_name}"  
-    end  
-  end  
-  
-  def get_json(group)
-    adapter.get_json(group)
-  end
-  
-  def enum_groups
-    adapter.enum_groups
-  end
-  
-  def check_membership(group, member_type)
-    adapter.check_membership(group, member_type)
-  end
-  
-  def check_computer_membership(computername, groupname)
-    adapter.check_computer_membership(computername, groupname)
-  end
-  
-  def is_group?(group)
-    adapter.is_group?(group)
-  end
-end
 
-module AD  
-  module Adapters  
-    module PBIS  
-      extend self  
-      def get_json(group) 
-        LOG.debug "PBIS::get_json: Getting JSON data for group #{group}"
-        str = `/opt/pbis/bin/adtool -a lookup-object --dn="#{group}" --attr=info`.strip
-        LOG.debug "PBIS::get_json: JSON returned for group #{group}: #{str}"
-        str
-      end
-      
-      def enum_groups
-        LOG.debug "PBIS::enum_groups: Enumerating groups that are a member of #{ALL_SHARES_GROUP}"
-        groups = `/opt/pbis/bin/adtool -l 2 -a search-group --name "#{ALL_SHARES_GROUP}" -t | /opt/pbis/bin/adtool -a lookup-object --dn=- --attr=member`.split
-        LOG.debug "PBIS::enum_groups: #{groups.count} group members found in #{ALL_SHARES_GROUP}"
-        groups
-      end
-      
-      def check_membership(group, member_type='user')
-        LOG.debug "PBIS::check_membership: Checking membership of #{member_type} in #{group}"
-        case member_type
-        when 'computer'
-          # Since /opt/pbis/domainjoin-cli only lets us query as root, get the computer name instead and hope that it's what we joined as
-          member = `scutil --get ComputerName`.strip
-        else
-          # Always default to current user
-          member = `id -un`.strip
-        end
-        LOG.debug "PBIS::check_membership: #{member_type} member value being used is: #{member}"
-        
-        case member_type
-        when 'user'
-          membership_output = `/opt/pbis/bin/query-member-of --user --by-name #{member}`
-          membership_output.include? group
-        when 'computer'
-          result = check_computer_membership(member, group)
-        end
-      end
-      
-      private
-      
-      def check_computer_membership(computername, groupname)
-        result = `/opt/pbis/bin/adtool -a lookup-object --dn="#{groupname}" --attr=member`.strip.downcase
-        unless result.include? computername
-          groups = result.split
-          groups.each do |group|
-            if is_group?(group)
-              check_computer_membership(computername, group)
-            end
-          end
-        end
-        if result.include? computername.downcase
-          LOG.debug "PBIS::check_computer_membership: #{computername} was found to be a member of #{groupname}"
-          return true
-        else
-          LOG.debug "PBIS::check_computer_membership: #{computername} was NOT found to be a member of #{groupname}. Evaluating other members for nested groups"
-          groups = result.split
-          LOG.debug "PBIS::check_computer_membership: #{groups.count} members found."
-          groups.each do |group|
-            if is_group?(group)
-              LOG.debug "PBIS::check_computer_membership: #{group} is a group. Evaluating it for #{computername}"
-              return true if check_computer_membership(computername, group)
-            end
-          end
-        end
-        return false
-      end
-      
-      def is_group?(group)
-        result = `/opt/pbis/bin/adtool -a lookup-object --dn="#{group}" --attr=objectClass`.strip
-        result.include? "group"
-      end
-    end  
-  end  
-end
+
+
 
 class String  
   def occurances_of(str, offset=0)
@@ -268,7 +209,7 @@ class Share
         @uri = URI.parse expand_variables(@share)
       else
         LOG.warn "Path key is required for a share"
-        break
+        return
       end
       
       @mountname = (arg.has_key? 'mountname') ? arg['mountname'] : @uri.path.split("/").last
@@ -299,8 +240,9 @@ class Share
     result = `mount_smbfs #{sharestring} "#{mountpoint}" 2>&1`
     if $? != 0
       LOG.error "Unable to mount #{sharestring} at #{mountpoint}: #{result}"
+    else
+      LOG.info "#{mountname} successfully mounted."
     end
-    LOG.info "#{mountname} successfully mounted."
   end
 
   def mountname

@@ -1,32 +1,25 @@
 # ADShareMounter
 
-This is a ruby script for conveniently managing mount-at-login network drives on OS X from your Active Directory infrastructure.
+This is a ruby script for conveniently managing mount-at-login network drives on OS X from your Active Directory infrastructure. Printer support is planned for the future, and will likely be in a different project.
 
-It utilitizes the Notes section of certain Active Directory groups for information on what to do.
+Simply write some JSON data to go in the Notes section of an active directory group, add your group members, and the client will enumerate those groups and mount the share.
 
 ## Client Installation
 
-Install the LaunchAgent property list at /Library/LaunchAgents, then install the script itself at /Library/CLLA/, or wherever else you install your management scripts. If you choose to relocate the script, remember to edit the launchagent plist.
+Install the LaunchAgent property list at /Library/LaunchAgents, then install the project at /Library/CLLA/, or wherever else you install your management scripts. If you choose to relocate the script, remember to edit the launchagent plist.
 
 **Note**
 
-This script was written using an adapter architecture to use various backends to communicate with your directory. Currently, it only supports BeyondTrust's PowerBroker Identity Service, Open Edition (pbis). The enterprise edition of pbis may also work, but is untested.
+This script was written using an adapter architecture to use various backends to communicate with your directory. Currently, it supports AD plugins that interface with the DirectoryServices frameworks (including the built-in AD plugin) and BeyondTrust's PowerBroker Identity Service, Open Edition (pbis). The enterprise edition of pbis may also work, but is untested.
 
-## Server Installation
-
-Hah, there's nothing to install!
 
 ## Directory Configuration
 
-### Master Group
-The ADShareMounter reads one group in Active Directory for its group members. These should be all the groups it needs to read the Notes attribute of for instructions. By default the client looks for a master group named `CLLA-All Mac Shares`, but it most circumstances you will want to customize this for your environment and naming scheme.
-
-For each share group you create, you will need to add that share group as a member of the master group, or it won't be processed.
-
-_Comment: I experimented with simply trying to use `id -Gn` to enumerate group membership to avoid using a master group, but this process proved to be very unreliable and inconsistent for directory groups. I am unsure if this is a result of not using the built-in Active Directory plugin, or a bug in the pbis plugin that we use at my institution._
 
 ### Share Groups
-The share groups is where you will write the instructions and provide the share information. You will provide this by putting JSON data in the Notes text box of the group's Properties window.
+The share groups are where you will write the instructions and provide the share information. You will provide this by putting JSON data in the Notes text box of the group's Properties window in AD Users and Computers, or using some other AD attribute editor.
+
+Nesting of share groups *is* supported - groups will be searched recursively for other groups.
 
 The JSON structure is simple: it should contain a single `shares` key whose value can be:
 
@@ -35,14 +28,11 @@ The JSON structure is simple: it should contain a single `shares` key whose valu
   * `path` required - a string of the uri for the share
   * `domain` optional - a domain to prepend to the username (FOO\username@...)
   * `mountname` optional - which folder to create under /Volumes to mount the share on (/Volumes/mountname)
-  * `member_type` optional - how to evaluate if the share should be mounted. A value of `user` will check if the current user is a member of the share group; a value of `computer` will check if the computer object is a member of the share group. 
 * an array of objects in the same format specified above
 
 If `domain` is omitted, no domain is specified in the connect string and we will attemt to connect to the share using the current username only, i.e. currentuser@server.com/share. 
 
 If `mountname` is omitted, the last folder of the path uri is used to create the mount point. For instance, server.com/Shares/DepartmentFoo will be mounted to /Volumes/DepartmentFoo.
-
-If `member_type` is omitted, the default value is `user`. This will check if the current logged in user is a member of the share group. If they are not found to be a member, the share will be skipped.
 
 You may add any other keys which will help you in any way. I often add a comment key describing the share.
 
@@ -52,7 +42,10 @@ As of PBIS open edition version 7.0.6 there's a problem reading multi-line data 
 
 ## How it works
 
-ADShareMounter uses the `mount_smbfs` utility to mount a fileshare. It relies on your client having a valid Kerberos tgt to connect to the fileshare server, so it will not prompt the user for a password at any time. If the connection fails, a warning will be written to the system log file but no message will be presented to the user.
+When launched, it will enumerate the directory groups that the current user is a member of. It then tries to read the "info" attribute (which is populated by the Notes textbox in the AD Users and Computers GUI) of each group for JSON data describing the share.
+
+It will then try to mount the share as described by using the mount tool (`mount -t smbfs`) using SSO (kerberos) credentials. Password prompting is not supported and is not planned: the user must have a kerberos tgt.
+
 
 ### Variable Substitutions
 
