@@ -16,7 +16,7 @@ COMPUTER_NAME = `scutil --get ComputerName`.strip
 
 # Log level
 LOG = Logger.new(STDOUT)
-LOG.level = Logger::DEBUG
+LOG.level = Logger::INFO
 
 
 # Define which directory adapter to use to communicate with the directory service
