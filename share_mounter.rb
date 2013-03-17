@@ -19,17 +19,10 @@ LOG = Logger.new(STDOUT)
 LOG.level = Logger::INFO
 
 
-# Define which directory adapter to use to communicate with the directory service
-## pbis uses beyondtrust's pbis tools (in /opt/pbis)
-## ds uses the built-in directoryservice/opendirectoryd tools (dscl, dsmemberutil, etc.)
-
-ADAPTER = :ds  # Can be :pbis or :ds
-
 #####################
 
 def main
-  ADAdapters.adapter = ADAPTER
-  
+  ADAdapters.adapter = select_default_adapter  
   groups = ADAdapters.get_groups(CURRENT_USER, "user")
   
   unless groups.nil? || groups.empty?
@@ -261,6 +254,15 @@ class Share
       str.gsub!("%U", @user)
     end
     str
+  end
+end
+
+def select_default_adapter
+  # Assume that if the pbis tools are installed, we should use pbis
+  if File.exist? "/opt/pbis"
+    :pbis
+  else
+    :ds
   end
 end
 
