@@ -27,8 +27,14 @@ def main
   
   unless groups.nil? || groups.empty?
     shares = find_shares_in_groups(groups)
-    shares.each do |share|
-      share.mount if share.is_a? Share
+    LOG.debug "Start share mounting routine"
+    if shares.is_a?(Array) && !shares.empty?
+      shares.each do |s|
+        LOG.debug "Attempting to mount share: #{s.inspect}"
+        s.mount if s.is_a? Share
+      end
+    else
+      LOG.debug "No shares were found"
     end
   else
     LOG.warn "No group membership was found for object: #{CURRENT_USER}"
