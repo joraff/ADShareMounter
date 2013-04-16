@@ -26,13 +26,14 @@ module ADAdapters
         exit_code = $?
       end
   
-      if groups.include? "No such key" || exit_code != 0
         LOG.debug "No more groups for #{objectName}"
+      if groups.empty? || groups.strip == "No such key: #{ADGroupAttribute}" || exit_code != 0
         return
       else
-        groups = groups.split("\n") # split into an array by line
-        groups.shift # remove first element, which is the group attribute name
-        groups = ADAdapters.extract_cns(groups)
+        
+        groups = clean_group_output(groups)
+
+        groups = ADAdapters.extract_cns(groups) unless groups.nil?
     
         LOG.debug "Found #{groups.count} groups: #{groups.inspect}"
         immu_groups = Array.new groups
@@ -44,6 +45,20 @@ module ADAdapters
         LOG.debug "End of recursion for #{objectName}\n\n"
       end
       groups
+    end
+    
+    private 
+    
+    def clean_group_output(groups)
+      groups = groups.split("\n") # split into an array by line
+      groups.map! {|m| m unless m.include? "No such key" }.compact! # remove potential no-match output from other directories in the search path
+      # Assume what we have left is an output of DNs (prefixed by the key name) potentially on multiple lines
+      groups.map! do |line|
+        line = line.split(" ")
+        line.map {|m| m unless m.include? ADGroupAttribute }.compact! # remove key prefix in the output
+      end
+      
+      groups.compact.flatten
     end
   end
 end
