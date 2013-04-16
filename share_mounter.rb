@@ -42,7 +42,9 @@ def main
   
   
   # If multiple shares were mounted, their desktop icons sometimes will overlap each other. Tell Finder to cleanup to arrange these.
+  LOG.debug "Telling Finder.app to rearrange desktop items by name"
   `osascript -e 'tell application "Finder" to clean up window of desktop by name'`
+  LOG.debug "ADShareMounter out."
 end
 
 def find_shares_in_groups(groups)
@@ -58,29 +60,32 @@ def find_shares_in_groups(groups)
       else
         begin
           json_segments = data.extract_json
-          
-          json_segments.each do |data|
-            obj = JSON.parse(data)
-            if ! obj.is_a? Hash
-              LOG.warn "JSON object from #{group} does not convert to a hash"
-            elsif ! obj.has_key? "shares"
-              LOG.warn "JSON object from #{group} doesn't contain a shares key"
-            else
-              case obj["shares"]
-              when Array
-                obj["shares"].each do |share|
-                  LOG.debug "Our shares was an array"
-                  LOG.debug "Processing share data: #{share.inspect}"                  
-                  shares << Share.new(share)
-                end
-              else # Hash or String
-                unless obj["shares"].empty?
-                  LOG.debug "Creating new share object with arg: #{obj["shares"].inspect}"
-                  shares << Share.new(obj["shares"]) 
+          if json_segments
+            json_segments.each do |data|
+              obj = JSON.parse(data)
+              if ! obj.is_a? Hash
+                LOG.warn "JSON object from #{group} does not convert to a hash"
+              elsif ! obj.has_key? "shares"
+                LOG.warn "JSON object from #{group} doesn't contain a shares key"
+              else
+                case obj["shares"]
+                when Array
+                  obj["shares"].each do |share|
+                    LOG.debug "Our shares was an array"
+                    LOG.debug "Processing share data: #{share.inspect}"                  
+                    shares << Share.new(share)
+                  end
+                else # Hash or String
+                  unless obj["shares"].empty?
+                    LOG.debug "Creating new share object with arg: #{obj["shares"].inspect}"
+                    shares << Share.new(obj["shares"]) 
+                  end
                 end
               end
-            end
-          end # end json_sengments loop
+            end # end json_sengments loop
+          else
+            LOG.debug "No JSON segments found"
+          end
         rescue JSON::ParserError => e
           LOG.warn "Warning: group '#{group}' has a json error: #{e}"
         end # end trap
@@ -169,12 +174,26 @@ class String
   
   def extract_json
     json_segments = []
-
+    LOG.debug("Attempting to extract JSON data from string: #{self}")
     begin
       offset = 0 unless offset
+      
       first_open = self.index("{", offset)
-
+      if first_open
+        LOG.debug("JSON opening bracket located at position #{first_open}")
+      else
+        LOG.debug("No opening bracket found - not JSON data")
+        return nil
+      end
+        
       all_close = self.occurances_of('}', offset)
+      if first_open
+        LOG.debug("JSON closing bracket(s) located at position(s) #{all_close}")
+      else
+        LOG.debug("No closing brackets found - not JSON data")
+        return nil
+      end
+      
       all_close.each do |end_pos|
         begin
           obj = JSON.parse(self[first_open..end_pos])

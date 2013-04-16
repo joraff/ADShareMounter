@@ -13,7 +13,7 @@ module ADAdapters
     end
     
     def get_groups(objectName, objectType="computer")
-      LOG.debug "gettings subgroups of #{objectName}, which is of type #{objectType}"
+      LOG.debug "-- Gettings subgroups of #{objectName}, which is of type #{objectType}."
       case objectType
       when "user"
         groups = `dscl /Search read "/Users/#{objectName}" #{ADGroupAttribute} 2>&1`
@@ -26,23 +26,26 @@ module ADAdapters
         exit_code = $?
       end
   
-        LOG.debug "No more groups for #{objectName}"
       if groups.empty? || groups.strip == "No such key: #{ADGroupAttribute}" || exit_code != 0
+        LOG.debug "-- No more groups for #{objectName}."
         return
       else
+        LOG.debug("-- Raw group output: #{groups.inspect}")
         
         groups = clean_group_output(groups)
 
+        LOG.debug("-- Cleaned group output: #{groups.inspect}")
+        LOG.debug("-- Extracting CNs from DNs")
         groups = ADAdapters.extract_cns(groups) unless groups.nil?
     
-        LOG.debug "Found #{groups.count} groups: #{groups.inspect}"
+        LOG.debug "-- Found #{groups.count} groups: #{groups.inspect}."
         immu_groups = Array.new groups
         immu_groups.each do |group|
-          LOG.debug "\nContinuing recursion from #{objectName} with group: #{group}"
+          LOG.debug "Continuing recursion from #{objectName} with group: #{group}"
           new_groups = get_groups(group, "group")
           new_groups.compact.map {|g| groups << g unless groups.include? g } unless new_groups.nil?
         end
-        LOG.debug "End of recursion for #{objectName}\n\n"
+        LOG.debug "End of recursion for #{objectName}"
       end
       groups
     end
