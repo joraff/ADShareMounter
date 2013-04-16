@@ -42,8 +42,8 @@ def main
   
   
   # If multiple shares were mounted, their desktop icons sometimes will overlap each other. Tell Finder to cleanup to arrange these.
-  LOG.debug "Telling Finder.app to rearrange desktop items by name"
-  `osascript -e 'tell application "Finder" to clean up window of desktop by name'`
+  # LOG.debug "Telling Finder.app to rearrange desktop items by name"
+  # `osascript -e 'tell application "Finder" to clean up window of desktop by name'`
   LOG.debug "ADShareMounter out."
 end
 
