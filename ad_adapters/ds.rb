@@ -9,7 +9,7 @@ module ADAdapters
       str = `dscl /Search read "/Groups/#{group}" dsAttrTypeNative:info`.split("\n").map { |i| i.strip }
       str.shift
       LOG.debug "DS::get_info: Info attr data returned for group #{group}: #{str}"
-      str[0]
+      str.join
     end
     
     def get_groups(objectName, objectType="computer")
