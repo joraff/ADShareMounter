@@ -19,6 +19,9 @@ LOG = Logger.new(STDOUT)
 LOG.level = Logger::INFO
 
 
+if ARGV.include? "-debug"
+  LOG.level = Logger::DEBUG
+  
 #####################
 
 def main
