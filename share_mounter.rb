@@ -58,6 +58,7 @@ def find_shares_in_groups(groups)
   else
     groups.each do |group|
       data = ADAdapters.get_info(group)
+      LOG.debug("Data returned from directory plugin: #{data.inspect}")
       if data.nil? || data.empty?
         LOG.warn "Warning: group '#{group}' has an empty info attribute"
       else
@@ -191,18 +192,21 @@ class String
         
       all_close = self.occurances_of('}', offset)
       if first_open
-        LOG.debug("JSON closing bracket(s) located at position(s) #{all_close}")
+        LOG.debug("JSON closing bracket(s) located at position(s) #{all_close.inspect}")
       else
         LOG.debug("No closing brackets found - not JSON data")
         return nil
       end
       
       all_close.each do |end_pos|
+        LOG.debug("Evaluating string from #{first_open} to #{end_pos} for valid JSON")
         begin
           obj = JSON.parse(self[first_open..end_pos])
         rescue JSON::ParserError
+          LOG.debug("Nothing valid found in #{first_open} to #{end_pos}")
         else
           offset = end_pos
+          LOG.debug("Valid JSON valid found in #{first_open} to #{end_pos}. Adding segment")
           json_segments << self[first_open..end_pos]
           break
         end
