@@ -187,7 +187,7 @@ class String
         LOG.debug("JSON opening bracket located at position #{first_open}")
       else
         LOG.debug("No opening bracket found - not JSON data")
-        return nil
+        break
       end
         
       all_close = self.occurances_of('}', offset)
