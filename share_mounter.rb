@@ -21,6 +21,7 @@ LOG.level = Logger::INFO
 
 if ARGV.include? "-debug"
   LOG.level = Logger::DEBUG
+end
   
 #####################
 
